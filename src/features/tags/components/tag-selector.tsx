@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Hash, Loader2, Plus, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import type { Tag } from "@/lib/db/schema";
 import { Badge } from "@/components/ui/badge";
 import { createTagFn } from "@/features/tags/api/tags.api";
@@ -34,22 +35,7 @@ export function TagSelector({
 
   // Strict optimistic update following TanStack Query best practices
   const createTagMutation = useMutation({
-    mutationFn: async (name: string) => {
-      const result = await createTagFn({ data: { name } });
-      if (result.error) {
-        const reason = result.error.reason;
-        switch (reason) {
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-          case "TAG_NAME_ALREADY_EXISTS":
-            throw new Error("该标签名称已存在");
-          default: {
-            reason satisfies never;
-            throw new Error("未知错误");
-          }
-        }
-      }
-      return result.data;
-    },
+    mutationFn: async (name: string) => createTagFn({ data: { name } }),
 
     // When mutate is called (BEFORE the request)
     onMutate: async (newTagName) => {
@@ -91,7 +77,15 @@ export function TagSelector({
     },
 
     // If mutation succeeds, we need to swap the optimistic ID with the real ID
-    onSuccess: (newTag, _variables, context) => {
+    onSuccess: (result, _variables, context) => {
+      if (result.error) {
+        queryClient.setQueryData(TAGS_KEYS.adminList({}), context.previousTags);
+        onChange(value.filter((id) => id !== context.optimisticTagId));
+        toast.error("创建标签失败", { description: "该标签名称已存在" });
+        return;
+      }
+
+      const newTag = result.data;
       // 1. Update the cache to replace the temp tag with the real one
       queryClient.setQueryData(
         TAGS_KEYS.adminList({}),
